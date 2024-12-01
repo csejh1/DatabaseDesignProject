@@ -35,6 +35,10 @@ public class ScheduleService {
         }
     }
 
+    public List<Schedule> getUserSchedules(Long userId) { // 추가된 부분: 사용자 일정 조회
+        return scheduleRepository.findByUserId(userId);
+    }
+
     private Schedule autoSchedule(Schedule schedule, User user) {
         int sleepTime = user.getSleep_time(); // 수면 시간 (시간 단위)
         LocalTime bedtime = LocalTime.parse(user.getBedtime()); // 취침 시간 (시간 단위)

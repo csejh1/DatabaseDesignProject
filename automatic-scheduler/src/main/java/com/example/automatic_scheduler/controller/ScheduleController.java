@@ -10,6 +10,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
+
 @Setter
 @Getter
 @RestController
@@ -32,6 +34,13 @@ public class ScheduleController {
             // 일반적인 RuntimeException 처리
             return ResponseEntity.badRequest().body(e.getMessage());
         }
+    }
+
+    @GetMapping("/user/{userId}") // 추가된 부분: 사용자 ID로 일정을 조회
+    public ResponseEntity<List<Schedule>> getUserSchedules(@PathVariable(name = "userId") Long userId) {
+        List<Schedule> schedules = scheduleService.getUserSchedules(userId);
+        System.out.println("Received User ID: " + userId);
+        return ResponseEntity.ok(schedules);
     }
 
     @Setter
