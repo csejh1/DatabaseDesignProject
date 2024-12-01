@@ -17,7 +17,8 @@ public enum StatusCode {
     USER_NOT_FOUND(false, 401, "사용자를 찾을 수 없습니다."),
     INVALID_REQUEST(false, 405, "요청 본문이 비어 있거나 필수 필드가 누락되었습니다."),
     INVALID_INPUT(false,406 ,"" ),
-    NOT_FOUND(false,407 ,"해당일정을 찾을 수 없습니다." ); // 수정된 부분
+    NOT_FOUND(false,407 ,"해당일정을 찾을 수 없습니다." ),
+    SLEEP_TIME_ERROR(false,408 ,"수면시간을 포함합니다." ); // 수정된 부분
 
 
     private final Boolean suceess;

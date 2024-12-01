@@ -12,6 +12,7 @@ import org.springframework.stereotype.Service;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.List;
+import java.util.stream.Collectors;
 
 @Service
 public class ScheduleService {
@@ -35,157 +36,205 @@ public class ScheduleService {
         }
     }
 
-    public List<Schedule> getUserSchedules(Long userId) { // 추가된 부분: 사용자 일정 조회
+    public List<Schedule> getUserSchedules(Long userId) {
         return scheduleRepository.findByUserId(userId);
     }
 
-    // 일정 수정
     public Schedule updateSchedule(Long scheduleId, Schedule schedule) {
+        // 기존 일정 조회
         Schedule existingSchedule = scheduleRepository.findById(scheduleId)
                 .orElseThrow(() -> new ApiException(StatusCode.NOT_FOUND));
+
+        // 사용자 정보 조회
+        User user = userRepository.findById(schedule.getUserId())
+                .orElseThrow(() -> new ApiException(StatusCode.USER_NOT_FOUND));
+
+        // 시간 관련 검증 (수면 시간 및 충돌 확인)
+        int sleepTime = user.getSleep_time(); // 수면 시간
+        LocalTime bedtime = LocalTime.parse(user.getBedtime()); // 취침 시간
+        LocalDateTime assignedStart = schedule.getAssignedStart();
+        LocalDateTime assignedEnd = schedule.getAssignedEnd();
+
+        // 수면 시간 검증
+        if (isOverlappingWithSleepTime(assignedStart, assignedEnd, sleepTime, bedtime)) {
+            throw new ApiException(StatusCode.SLEEP_TIME_ERROR);
+        }
+
+        // 기존 일정과의 충돌 여부 확인
+        if (checkScheduleConflict(assignedStart, assignedEnd, schedule.getUserId())) {
+            throw new ApiException(StatusCode.CONFLICT_TIME_ERROR);
+        }
+
+        // 검증 통과 후 업데이트
         existingSchedule.setPriority(schedule.getPriority());
         existingSchedule.setStatus(schedule.getStatus());
         existingSchedule.setAssignedStart(schedule.getAssignedStart());
         existingSchedule.setAssignedEnd(schedule.getAssignedEnd());
+
         return scheduleRepository.save(existingSchedule);
     }
 
-    // 일정 삭제
+
+
     public void deleteSchedule(Long scheduleId) {
         Schedule existingSchedule = scheduleRepository.findById(scheduleId)
                 .orElseThrow(() -> new ApiException(StatusCode.NOT_FOUND, "Schedule not found"));
         scheduleRepository.delete(existingSchedule);
     }
 
-    //일정 자동 생성
     private Schedule autoSchedule(Schedule schedule, User user) {
-        int sleepTime = user.getSleep_time(); // 수면 시간 (시간 단위)
-        LocalTime bedtime = LocalTime.parse(user.getBedtime()); // 취침 시간 (시간 단위)
+        int sleepTime = user.getSleep_time();
+        LocalTime bedtime = LocalTime.parse(user.getBedtime());
 
-        LocalDateTime currentTime = LocalDateTime.now();
-        LocalDateTime deadline = schedule.getDeadline(); // 이미 LocalDateTime으로 되어 있음
-
-        // 마감 기한을 고려하여 가능한 시작 시간을 찾기
-        LocalDateTime availableStart = findAvailableTimeSlot(deadline, schedule.getDuration(), bedtime, user,schedule.getPriority());
+        LocalDateTime deadline = schedule.getDeadline();
+        LocalDateTime availableStart = findAvailableTimeSlot(deadline, schedule.getDuration(), bedtime, user, schedule.getPriority());
 
         if (availableStart == null) {
-            throw new ApiException(StatusCode.CONFLICT_TIME_ERROR); // 가능한 시간이 없을 경우 예외 발생
+            throw new ApiException(StatusCode.CONFLICT_TIME_ERROR);
         }
 
         LocalDateTime assignedEnd = availableStart.plusMinutes(schedule.getDuration());
-        schedule.setAssignedStart(availableStart); // LocalDateTime으로 설정
-        schedule.setAssignedEnd(assignedEnd); // LocalDateTime으로 설정
+        schedule.setAssignedStart(availableStart);
+        schedule.setAssignedEnd(assignedEnd);
 
         scheduleRepository.save(schedule);
-        return schedule; // 생성된 일정을 반환
+        return schedule;
     }
 
-
-    //수동 생성
     private Schedule manualSchedule(Schedule schedule) {
+        User user = userRepository.findById(schedule.getUserId())
+                .orElseThrow(() -> new ApiException(StatusCode.USER_NOT_FOUND));
+
+        int sleepTime = user.getSleep_time();
+        LocalTime bedtime = LocalTime.parse(user.getBedtime());
+
+        LocalDateTime assignedStart = schedule.getAssignedStart();
+        LocalDateTime assignedEnd = schedule.getAssignedEnd();
+
+        // Debug 로그
+        System.out.println("Manual Schedule: Checking conflicts");
+        System.out.println("Assigned Start: " + assignedStart);
+        System.out.println("Assigned End: " + assignedEnd);
+        System.out.println("Bedtime: " + bedtime + ", Sleep Time: " + sleepTime);
+
+        if (isOverlappingWithSleepTime(assignedStart, assignedEnd, sleepTime, bedtime)) {
+            throw new ApiException(StatusCode.SLEEP_TIME_ERROR);
+        }
+
+        if (checkScheduleConflict(assignedStart, assignedEnd, schedule.getUserId())) {
+            throw new ApiException(StatusCode.CONFLICT_TIME_ERROR);
+        }
+
         scheduleRepository.save(schedule);
-        return schedule; // 생성된 일정을 반환
+        return schedule;
     }
+
+    private boolean isOverlappingWithSleepTime(LocalDateTime start, LocalDateTime end, int sleepTime, LocalTime bedtime) {
+        // 취침 시간: 오늘의 bedtime
+        LocalDateTime bedtimeStart = LocalDateTime.of(start.toLocalDate(), bedtime);
+
+        // 기상 시간: bedtime + sleepTime
+        LocalDateTime wakeupTime = bedtimeStart.plusHours(sleepTime);
+
+        // 만약 bedtime이 현재 시간보다 이전이고 wakeup이 다음날로 넘어가는 경우를 자동 처리
+        if (bedtime.isBefore(LocalTime.of(12, 0)) && wakeupTime.isBefore(bedtimeStart)) {
+            wakeupTime = wakeupTime.plusDays(1); // 다음날로 보정
+        }
+
+        // Debug 로그
+        System.out.println("Checking sleep time overlap:");
+        System.out.println("Sleep Time Range: " + bedtimeStart + " to " + wakeupTime);
+        System.out.println("Schedule: " + start + " to " + end);
+
+        // 겹치는지 확인
+        boolean overlap = start.isBefore(wakeupTime) && end.isAfter(bedtimeStart);
+        if (overlap) {
+            System.out.println("Conflict with sleep time.");
+        } else {
+            System.out.println("No conflict with sleep time.");
+        }
+
+        return overlap;
+    }
+
+
 
     private LocalDateTime findAvailableTimeSlot(LocalDateTime deadline, int duration, LocalTime bedtime, User user, int priority) {
         LocalDateTime now = LocalDateTime.now();
 
-        // Null 검증
-        if (deadline == null) {
-            throw new ApiException(StatusCode.INVALID_INPUT, "Deadline cannot be null.");
-        }
-        if (bedtime == null) {
-            throw new ApiException(StatusCode.INVALID_INPUT, "Bedtime cannot be null.");
+        if (deadline == null || bedtime == null) {
+            throw new ApiException(StatusCode.INVALID_INPUT, "Deadline or bedtime cannot be null.");
         }
 
-        // Debug 로그
         System.out.println("Debug: Deadline = " + deadline);
         System.out.println("Debug: Bedtime = " + bedtime);
         System.out.println("Debug: Priority = " + priority);
 
-        LocalTime wakeupTime = bedtime.plusHours(user.getSleep_time()); // 기상 시간 계산
+        LocalTime wakeupTime = bedtime.plusHours(user.getSleep_time());
         LocalDateTime assignedStart;
-        LocalDateTime assignedEnd;
 
         if (priority == 1) {
-            // 우선순위 1: 현재 시간 기준으로 탐색
-            LocalDateTime bedtimeStart = LocalDateTime.of(now.toLocalDate(), bedtime); // 오늘 취침 시간
-            LocalDateTime nextWakeupTime = bedtimeStart.plusDays(1).toLocalDate().atTime(wakeupTime); // 다음날 기상 시간
+            LocalDateTime bedtimeStart = LocalDateTime.of(now.toLocalDate(), bedtime);
+            LocalDateTime nextWakeupTime = bedtimeStart.plusDays(1).toLocalDate().atTime(wakeupTime);
 
-            // 현재 시간이 취침~기상 시간 범위에 있는지 확인
             if (now.toLocalTime().isAfter(bedtime) || now.toLocalTime().isBefore(wakeupTime)) {
-                System.out.println("Current time is within sleep hours. Adjusting to next wakeup time.");
                 assignedStart = nextWakeupTime;
             } else {
-                // 현재 시간이 수면 시간이 아니면, 다음 30분 블록으로 조정
                 assignedStart = now.plusMinutes(30 - (now.getMinute() % 30));
             }
         } else if (priority == 2) {
-            // 우선순위 2: 마감 기한 기준 전날 기상 시간부터 탐색
             LocalDateTime previousWakeupTime = deadline.minusDays(1).toLocalDate().atTime(wakeupTime);
-            System.out.println("Priority 2: Starting from previous wakeup time: " + previousWakeupTime);
             assignedStart = previousWakeupTime;
         } else {
             throw new ApiException(StatusCode.INVALID_INPUT, "Invalid priority value: " + priority);
         }
 
-        assignedEnd = assignedStart.plusMinutes(duration);
-        System.out.println("Debug: Initial Assigned Start = " + assignedStart);
-        System.out.println("Debug: Initial Assigned End = " + assignedEnd);
+        LocalDateTime assignedEnd = assignedStart.plusMinutes(duration);
+        System.out.println("Initial Assigned Start: " + assignedStart);
+        System.out.println("Initial Assigned End: " + assignedEnd);
 
-        // 가능한 시간대 찾기
         while (assignedStart.isBefore(deadline)) {
-            // 수면시간 체크
             if (assignedStart.toLocalTime().isAfter(bedtime) && assignedStart.toLocalTime().isBefore(wakeupTime)) {
-                System.out.println("Skipping assigned start time within sleep hours: " + assignedStart);
-                assignedStart = assignedStart.toLocalDate().atTime(wakeupTime).plusDays(1); // 다음날 기상 시간으로 건너뜀
+                assignedStart = assignedStart.toLocalDate().atTime(wakeupTime).plusDays(1);
                 assignedEnd = assignedStart.plusMinutes(duration);
                 continue;
             }
 
-            // 스케줄 충돌 체크
             if (!checkScheduleConflict(assignedStart, assignedEnd, user.getUser_id())) {
                 System.out.println("Available slot found: " + assignedStart);
                 return assignedStart;
             }
 
-            // 다음 30분 블록으로 이동
             assignedStart = assignedStart.plusMinutes(30);
             assignedEnd = assignedStart.plusMinutes(duration);
         }
 
         System.out.println("No available time slot found.");
-        return null; // 가능한 슬롯이 없을 경우 null 반환
+        return null;
     }
 
-
-
     private boolean checkScheduleConflict(LocalDateTime assignedStart, LocalDateTime assignedEnd, Long userId) {
-        // 현재 사용자의 기존 일정 조회
         List<Schedule> existingSchedules = scheduleRepository.findByUserId(userId);
 
-        // 디버깅 로그: 불러온 일정 출력
         System.out.println("Checking schedule conflicts for userId: " + userId);
         System.out.println("Assigned slot: " + assignedStart + " to " + assignedEnd);
         System.out.println("Existing schedules:");
 
         for (Schedule existingSchedule : existingSchedules) {
+
             LocalDateTime existingStart = existingSchedule.getAssignedStart();
             LocalDateTime existingEnd = existingSchedule.getAssignedEnd();
             System.out.println("- Schedule ID: " + existingSchedule.getScheduleId()
                     + ", Start: " + existingStart
                     + ", End: " + existingEnd);
 
-            // 새 일정의 시작 시간과 종료 시간이 기존 일정과 겹치는지 확인
             if (assignedStart.isBefore(existingEnd) && assignedEnd.isAfter(existingStart)) {
                 System.out.println("Conflict found with Schedule ID: " + existingSchedule.getScheduleId());
-                return true; // 일정이 겹치는 경우
+                return true;
             }
         }
 
-        // 디버깅 로그: 충돌 없음
         System.out.println("No conflicts found.");
-        return false; // 겹치는 일정이 없는 경우
+        return false;
     }
-
 }

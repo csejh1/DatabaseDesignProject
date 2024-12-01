@@ -71,6 +71,7 @@ public class ScheduleController {
         }
     }
 
+
     @Setter
     @Getter
     public static class ResponseMessage {
