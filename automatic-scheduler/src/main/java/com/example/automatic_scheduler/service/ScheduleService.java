@@ -39,6 +39,25 @@ public class ScheduleService {
         return scheduleRepository.findByUserId(userId);
     }
 
+    // 일정 수정
+    public Schedule updateSchedule(Long scheduleId, Schedule schedule) {
+        Schedule existingSchedule = scheduleRepository.findById(scheduleId)
+                .orElseThrow(() -> new ApiException(StatusCode.NOT_FOUND));
+        existingSchedule.setPriority(schedule.getPriority());
+        existingSchedule.setStatus(schedule.getStatus());
+        existingSchedule.setAssignedStart(schedule.getAssignedStart());
+        existingSchedule.setAssignedEnd(schedule.getAssignedEnd());
+        return scheduleRepository.save(existingSchedule);
+    }
+
+    // 일정 삭제
+    public void deleteSchedule(Long scheduleId) {
+        Schedule existingSchedule = scheduleRepository.findById(scheduleId)
+                .orElseThrow(() -> new ApiException(StatusCode.NOT_FOUND, "Schedule not found"));
+        scheduleRepository.delete(existingSchedule);
+    }
+
+    //일정 자동 생성
     private Schedule autoSchedule(Schedule schedule, User user) {
         int sleepTime = user.getSleep_time(); // 수면 시간 (시간 단위)
         LocalTime bedtime = LocalTime.parse(user.getBedtime()); // 취침 시간 (시간 단위)
@@ -62,7 +81,7 @@ public class ScheduleService {
     }
 
 
-
+    //수동 생성
     private Schedule manualSchedule(Schedule schedule) {
         scheduleRepository.save(schedule);
         return schedule; // 생성된 일정을 반환

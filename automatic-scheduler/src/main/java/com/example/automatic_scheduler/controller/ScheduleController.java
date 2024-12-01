@@ -43,6 +43,34 @@ public class ScheduleController {
         return ResponseEntity.ok(schedules);
     }
 
+    // 일정 수정 API
+    @PutMapping("/{scheduleId}")
+    public ResponseEntity<?> updateSchedule(@PathVariable(name = "scheduleId") Long scheduleId, @RequestBody Schedule schedule) {
+        try {
+            Schedule updatedSchedule = scheduleService.updateSchedule(scheduleId, schedule);
+            return ResponseEntity.ok(new ResponseMessage(true, updatedSchedule.getScheduleId()));
+        } catch (ApiException e) {
+            return ResponseEntity.status(e.getStatusCode().getHttpCode())
+                    .body(e.getStatusCode().getErrorMessage());
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
+
+    // 일정 삭제 API
+    @DeleteMapping("/{scheduleId}")
+    public ResponseEntity<?> deleteSchedule(@PathVariable(name = "scheduleId") Long scheduleId) {
+        try {
+            scheduleService.deleteSchedule(scheduleId);
+            return ResponseEntity.ok(new ResponseMessage(true, scheduleId));
+        } catch (ApiException e) {
+            return ResponseEntity.status(e.getStatusCode().getHttpCode())
+                    .body(e.getStatusCode().getErrorMessage());
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
+
     @Setter
     @Getter
     public static class ResponseMessage {
