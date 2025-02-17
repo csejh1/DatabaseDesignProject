@@ -7,9 +7,11 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class ApiException extends RuntimeException {
     private final StatusCode statusCode;
-
+    private final String detailMessage;
+    
     public ApiException(StatusCode statusCode, String message) {
         super(message); // 부모 클래스(RuntimeException)의 메시지를 설정
         this.statusCode = statusCode;
+        this.detailMessage = detailMessage;
     }
 }
